@@ -7,6 +7,7 @@
 //! MCTP Control Protocol implementation
 
 use crate::fmt::*;
+#[cfg(feature = "embassy")]
 use crate::Router;
 use mctp::{AsyncRespChannel, Eid, Error, Listener, MsgIC, MsgType};
 use uuid::Uuid;
@@ -424,6 +425,7 @@ where
 }
 
 /// A Control Message handler.
+#[cfg(feature = "embassy")]
 pub struct MctpControl<'a> {
     rsp_buf: [u8; MAX_MSG_SIZE],
     types: heapless::Vec<MsgType, MAX_MSG_TYPES>,
@@ -431,6 +433,7 @@ pub struct MctpControl<'a> {
     router: &'a Router<'a>,
 }
 
+#[cfg(feature = "embassy")]
 impl<'a> MctpControl<'a> {
     /// Create a new instance.
     pub fn new(router: &'a Router<'a>) -> Self {
