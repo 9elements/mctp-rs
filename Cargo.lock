@@ -948,6 +948,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "argh",
+ "embedded-io",
  "embedded-io-adapters",
  "embedded-io-async",
  "getrandom",

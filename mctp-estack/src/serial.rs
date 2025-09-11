@@ -104,7 +104,7 @@ impl MctpSerialHandler {
     /// Read a frame synchronously.
     /// This function blocks until at least one byte is available
     #[cfg(not(feature = "embassy"))]
-    pub fn recv(&mut self, input: &mut impl Read) -> Result<&[u8]> {
+    pub fn recv_sync(&mut self, input: &mut impl Read) -> Result<&[u8]> {
         // TODO: This reads one byte a time, might need a buffering wrapper
         // for performance. Will require more thought about cancel-safety
 
@@ -398,7 +398,7 @@ mod tests {
 
         let mut h = MctpSerialHandler::new();
         let mut s = esc.as_slice();
-        let packet = h.recv(&mut s).unwrap();
+        let packet = h.recv_sync(&mut s).unwrap();
         debug_assert_eq!(payload, packet);
     }
 

@@ -9,8 +9,12 @@ use log::{debug, error, info, trace, warn};
 use core::time::Duration;
 use std::time::Instant;
 
-// use embedded_io::Write;
+#[cfg(feature = "embassy")]
 use embedded_io_async::{Read, Write};
+
+#[cfg(not(feature = "embassy"))]
+use embedded_io::{Read, Write};
+
 use smol::future::FutureExt;
 use smol::Timer;
 
@@ -45,6 +49,7 @@ impl<S: Read + Write> Inner<S> {
         self.start_time.elapsed().as_millis() as u64
     }
 
+    #[cfg(feature = "embassy")]
     fn send_vectored(
         &mut self,
         eid: Eid,
@@ -84,9 +89,49 @@ impl<S: Read + Write> Inner<S> {
         }
     }
 
+    #[cfg(not(feature = "embassy"))]
+    fn send_vectored(
+        &mut self,
+        eid: Eid,
+        typ: MsgType,
+        tag: Option<Tag>,
+        integrity_check: MsgIC,
+        bufs: &[&[u8]],
+    ) -> Result<Tag> {
+        let _ = self.mctp.update(self.now());
+        let cookie = None;
+        let mut fragmenter = self.mctp.start_send(
+            eid,
+            typ,
+            tag,
+            true,
+            integrity_check,
+            Some(mctp_estack::serial::MTU_MAX),
+            cookie,
+        )?;
+
+        let mut tx_msg = Vec::new();
+        for buf in bufs {
+            tx_msg.extend_from_slice(buf);
+        }
+
+        loop {
+            let mut tx_pkt = [0u8; mctp_estack::serial::MTU_MAX];
+            let r = fragmenter.fragment(&tx_msg, &mut tx_pkt);
+            match r {
+                SendOutput::Packet(p) => {
+                    self.mctpserial.send_sync(p, &mut self.serial)?
+                }
+                SendOutput::Complete { tag, .. } => break Ok(tag),
+                SendOutput::Error { err, .. } => break Err(err),
+            };
+        }
+    }
+
     /// Return a whole MCTP message reassembled
     ///
     /// Deadline is milliseconds, relative to `self.now()`
+    #[cfg(feature = "embassy")]
     fn receive(&mut self, deadline: Option<u64>) -> Result<MctpMessage<'_>> {
         let now = self.now();
 
@@ -118,6 +163,57 @@ impl<S: Read + Write> Inner<S> {
 
             let r = self.mctp.receive(pkt)?;
 
+            if let Some(mut msg) = r {
+                // Tricks here for loops+lifetimes.
+                // Could return `msg` directly once Rust polonius merged.
+                assert!(
+                    msg.cookie().is_none(),
+                    "standalone isn't setting cookies on send"
+                );
+                msg.set_cookie(Some(LIFETIME_COOKIE));
+                msg.retain();
+                break;
+            }
+        }
+
+        // loop only exits after receiving a message
+        Ok(self
+            .mctp
+            .get_deferred_bycookie(&[LIFETIME_COOKIE])
+            .expect("cookie was just set"))
+    }
+
+    /// Return a whole MCTP message reassembled
+    ///
+    /// Deadline is milliseconds, relative to `self.now()`
+    #[cfg(not(feature = "embassy"))]
+    fn receive(&mut self, deadline: Option<u64>) -> Result<MctpMessage<'_>> {
+        let now = self.now();
+
+        let deadline = if let Some(d) = deadline {
+            // deadline must be >= now
+            let t = d.checked_sub(now).ok_or(mctp::Error::BadArgument)?;
+            // smol::Timer is relative to Instant
+            Some(Instant::now() + Duration::from_millis(t))
+        } else {
+            None
+        };
+
+        const LIFETIME_COOKIE: AppCookie = AppCookie(0x123123);
+
+        loop {
+            let _ = self.mctp.update(self.now());
+            let r = self.mctpserial.recv_sync(&mut self.serial).or_else(|_| {
+                if let Some(deadline) = deadline {
+                    Timer::at(deadline);
+                } else {
+                    Timer::never();
+                }
+                Err(mctp::Error::TimedOut)
+            });
+
+            let pkt = r?;
+            let r = self.mctp.receive(pkt)?;
             if let Some(mut msg) = r {
                 // Tricks here for loops+lifetimes.
                 // Could return `msg` directly once Rust polonius merged.

@@ -3,6 +3,8 @@
  * Copyright (c) 2024 Code Construct
  */
 
+#![cfg(feature = "embassy")]
+
 #[allow(unused)]
 use log::{debug, error, info, trace, warn};
 

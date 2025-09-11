@@ -3,6 +3,8 @@
  * Copyright (c) 2024 Code Construct
  */
 
+#![cfg(feature = "embassy")]
+
 //! MCTP echo demo
 //!
 //! Can be tested with pty pairs an socat:

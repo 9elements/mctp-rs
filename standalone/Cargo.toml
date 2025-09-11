@@ -13,6 +13,7 @@ log = { workspace = true }
 mctp-estack = { workspace = true, default-features = true }
 mctp = { workspace = true }
 smol = { workspace = true }
+embedded-io.workspace = true
 
 [dev-dependencies]
 anyhow = { workspace = true }
