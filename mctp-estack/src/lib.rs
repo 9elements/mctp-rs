@@ -72,7 +72,7 @@ pub mod serial;
 pub mod usb;
 #[macro_use]
 mod util;
-pub mod proto;
+mod proto;
 
 #[cfg(feature = "embassy")]
 #[rustfmt::skip]
