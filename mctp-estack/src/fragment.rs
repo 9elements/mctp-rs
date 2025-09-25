@@ -144,6 +144,70 @@ impl Fragmenter {
         let used = max_total - rest.len();
         SendOutput::Packet(&mut out[..used])
     }
+
+    pub fn fragment_vectored<'f>(
+        &mut self,
+        payload: &[&[u8]],
+        out: &'f mut [u8],
+    ) -> SendOutput<'f> {
+        let total_payload_len =
+            payload.iter().fold(0, |acc, part| acc + part.len());
+        if total_payload_len < self.payload_used {
+            // Caller is passing varying payload buffers
+            debug!("varying payload");
+            return SendOutput::failure(Error::BadArgument, self);
+        }
+
+        // Require at least MTU buffer size, to ensure that all non-end
+        // fragments are the same size per the spec.
+        if out.len() < self.mtu {
+            debug!("small out buffer");
+            return SendOutput::failure(Error::BadArgument, self);
+        }
+
+        // Reserve header space, the remaining buffer keeps being
+        // updated in `rest`
+        let max_total = out.len().min(self.mtu);
+        let (h, mut rest) = out[..max_total].split_at_mut(MctpHeader::LEN);
+
+        // Append type byte
+        if self.header.som {
+            rest[0] = mctp::encode_type_ic(self.typ, self.ic);
+            rest = &mut rest[1..];
+        }
+
+        let remaining_payload_len = total_payload_len - self.payload_used;
+        let l = remaining_payload_len.min(rest.len());
+        let (d, rest) = rest.split_at_mut(l);
+        copy_vectored(payload, self.payload_used, d);
+        self.payload_used += l;
+
+        // Add the header
+        if self.payload_used == payload.len() {
+            self.header.eom = true;
+        }
+        // OK unwrap: seq and tag are valid.
+        h.copy_from_slice(&self.header.encode().unwrap());
+
+        self.header.som = false;
+        self.header.seq = (self.header.seq + 1) & mctp::MCTP_SEQ_MASK;
+
+        let used = max_total - rest.len();
+        SendOutput::Packet(&mut out[..used])
+    }
+}
+
+/// Copy data from payload to dest
+///
+/// Copies `dest.len()` bytes from payload to dest,
+/// starting after `offset` bytes offset.
+///
+/// # Panics
+///
+/// This function will panic when not enough bytes are available to fill dest.
+/// Total size of `payload` has to be `atleast dest.len()` + `offset`.
+fn copy_vectored(payload: &[&[u8]], offset: usize, dest: &mut [u8]) {
+    todo!()
 }
 
 pub enum SendOutput<'p> {
